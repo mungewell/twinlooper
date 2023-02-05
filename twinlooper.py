@@ -141,9 +141,11 @@ class twinlooper(object):
         for byte in data:
             check += int(byte)
 
-        check2 = (check & 0xFF) + (check >> 8)
+        while check & 0xFFFF00:
+            check2 = (check & 0xFF) + (check >> 8)
+            check =check2
 
-        return bytes([check2 ^ 0xFF])
+        return bytes([check ^ 0xFF])
 
     def reverse_check(self, data, min=1, max=9):
         from hexdump import hexdump
@@ -183,12 +185,17 @@ class twinlooper(object):
         # 
         print()
 
-    def build_download(self, packet, address, seed=0x00):
+    def build_download(self, address, length, seed=0x00):
 
-        data = bytearray(packet)
-        data[1] = (address & 0xFF)
-        data[2] = (address & 0xFF00) >> 8
-        data[3] = (address & 0xFF0000) >> 16
+        data = b""
+        data += bytes([(address & 0xFF)])
+        data += bytes([(address & 0xFF00) >> 8])
+        data += bytes([(address & 0xFF0000) >> 16])
+        data += bytes([(address & 0xFF000000) >> 24])
+
+        data += bytes([(length & 0xFF)])
+        data += bytes([(length & 0xFF00) >> 8])
+        data += bytes([(length & 0xFF0000) >> 16])
 
         data += self.checksum(data, seed)
 
@@ -196,69 +203,6 @@ class twinlooper(object):
         packed = self.pack(bytes(data), length)
 
         return(b"\x00\x32\x0d\x41\x00\x00\x40\x00" + packed)
-
-    def build_search(self, address):
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:60:67:7b:20:00:00:00:04:01:f7
-        # ...
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:40:62:7b:20:00:00:00:55:01:f7
-        # 00000000: 00 A0 78 0F 02 00 00 D5                           ..x.....
-        # 1.3.1   host    f0:00:32:0d:51:00:00:40:00:00:40:62:7b:20:00:00:00:7f:7f:5f:06:f7 
-        # 00000000: 00 A0 78 0F 02 00 00 FF  FF D7                    ..x.......
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:20:62:7b:20:00:00:00:65:01:f7
-        # 00000000: 00 90 78 0F 02 00 00 E5                           ..x.....
-        # 1.3.1   host    f0:00:32:0d:51:00:00:40:00:00:20:62:7b:20:00:00:00:6c:5e:29:00:f7
-        # 00000000: 00 90 78 0F 02 00 00 6C  6F 0A                    ..x....lo.  -> found!
-
-        return self.build_download(b"\x00\xF0\x79\x0F\x02\x00\x00", address)
-
-    def build_info1(self, address):
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:20:62:7b:10:7e:00:00:73:01:f7
-        # 00000000: 00 90 78 0F F1 03 00 F3                           ..x.....
-
-        return self.build_download(b"\x00\x80\xF0\x1F\xF1\x03\x00", address, 0xFE)
-
-    def build_info2(self, address):
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:71:27:62:7b:10:7e:00:00:7f:01:f7
-        # 00000000: F1 93 78 0F F1 03 00 FF                           ..x.....
-
-        return self.build_download(b"\xF1\x80\xF0\x1F\xF1\x03\x00", address, 0xFD)
-
-    def build_info3(self, address):
-        # f0:00:32:0d:41:00:00:40:00:62:2f:62:7b:60:4b:00:00:1e:01:f7
-        # 00000000: E2 97 78 0F 5E 02 00 9E                           ..x.^...
-
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:62:7f:07:03:40:03:00:00:20:01:f7
-        # 00000000: E2 FF 61 00 1C 00 00 A0                           ..a.....
-        # checksum seed 8 0xc0
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:62:0f:00:03:40:03:00:00:19:01:f7
-        # 00000000: E2 07 60 00 1C 00 00 99                           ..`.....
-        # checksum seed 8 0x0
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:62:1f:00:03:40:03:00:00:11:01:f7
-        # 00000000: E2 0F 60 00 1C 00 00 91                           ..`.....
-        # checksum seed 8 0x0
-
-        return self.build_download(b"\xE2\x80\xF0\x1F\xF1\x03\x00", address, 0xFD)
-
-    def build_more1(self, address):
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:70:07:03:10:7e:00:00:31:01:f7
-        # 00000000: 00 F8 61 00 F1 03 00 B1                           ..a.....
-        # checksum seed 8 0xda
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:71:77:07:03:10:7e:00:00:3d:01:f7
-        # 00000000: F1 FB 61 00 F1 03 00 BD                           ..a.....
-        # checksum seed 8 0x24
-
-        return self.build_download(b"\x00\x80\xF0\x1F\xF1\x03\x00", address)
-
-    def build_more2(self, address):
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:70:07:03:10:7e:00:00:31:01:f7
-        # 00000000: 00 F8 61 00 F1 03 00 B1                           ..a.....
-        # checksum seed 8 0xda
-        # host    1.3.2   f0:00:32:0d:41:00:00:40:00:71:77:07:03:10:7e:00:00:3d:01:f7
-        # 00000000: F1 FB 61 00 F1 03 00 BD                           ..a.....
-        # checksum seed 8 0x24
-
-        return self.build_download(b"\xF1\x80\xF0\x1F\xF1\x03\x00", address, 0xFE)
-
 
 #--------------------------------------------------
 def main():
@@ -277,7 +221,7 @@ def main():
     msg = mido.Message("sysex", data = [0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7f])
     outport.send(msg); sleep(0); msg = inport.receive()
 
-    print("Found pedal:")
+    print("Located pedal:")
     #print(hexdump(pedal.unpack(bytes(msg.data)[8:-1])))
     blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
     ident = pedal.unpack(msg.data, blen)
@@ -309,20 +253,16 @@ def main():
     print("---")
 
     found = False
-    for address in range(0x1EF3E0, 0x1EF000, -32):
+    for address in range(0x1EF3E000, 0x1EF00000, -0x2000):
         print("Checking Address:", hex(address))
 
-        mdata = pedal.build_search(address)
-        print(mdata)
-        print(hexdump(mdata))
-
+        mdata = pedal.build_download(address, 2)
         blen = (mdata[5]*128*128) + (mdata[4]*128) + mdata[3]
         
-        '''
-        print(hexdump(mdata))
-        print(hexdump(pedal.unpack(mdata[8:],65)))
-        '''
-        msg = mido.Message("sysex", data = pedal.build_search(address))
+        #print(hexdump(mdata))
+        #print(hexdump(pedal.unpack(mdata[8:],65)))
+
+        msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
 
         print("Unpacked Response:")
@@ -330,12 +270,6 @@ def main():
         rsp = pedal.unpack(bytes(msg.data)[8:], blen)
         print(hexdump(rsp))
 
-        '''
-        # test to perform/force more 'searches'
-        if address > 0xF200:
-            continue
-        '''
-        
         # check if address contains data, assuming that's what these bytes mean
         #print(hex(rsp[7]), hex(rsp[8]))
         if (rsp[7] != 0xFF) or (rsp[8] != 0xFF):
@@ -350,91 +284,84 @@ def main():
 
     # attempt to download 'info' at current address.
     print("---")
+
+    # from Tshark logs...
+    length = 0x03F1 + 0x03F1 + 0x025E
+    seed = 0xFE
+
     outfile = open("info.bin", "wb")
+    while length:
+        # read 'info' in chunks
+        if length >= 0x03F1:
+            mdata = pedal.build_download(address, 0x3F1, seed)
+            address += 0x03F1
+            length -= 0x03F1
+            seed = 0xFD         # yet to figure out why...
+        else:
+            mdata = pedal.build_download(address, length, 0xFE)
+            length = 0
 
-    msg = mido.Message("sysex", data = pedal.build_info1(address))
-    outport.send(msg); sleep(0); msg = inport.receive()
+        print(hexdump(mdata))
+        print(hexdump(pedal.unpack(mdata[8:],65)))
 
-    print("Unpacked Response (crop):")
-    blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-    info1 = pedal.unpack(bytes(msg.data)[8:], blen)
-    print(hexdump(info1[:64]))
+        msg = mido.Message("sysex", data = mdata)
+        outport.send(msg); sleep(0); msg = inport.receive()
 
-    dlen = (info1[6]*256*256) + (info1[5]*256) + info1[4]
-    outfile.write(info1[7:7 + dlen])
+        print("Unpacked Response (crop):")
+        blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
+        info = pedal.unpack(bytes(msg.data)[8:], blen)
+        print(hexdump(info[:64]))
 
-    # do 'part 2'
-    print("Info (pt 2):", hex(address))
-    print(hexdump(pedal.build_info2(address)))
-
-    msg = mido.Message("sysex", data = pedal.build_info2(address+3))
-    outport.send(msg); sleep(0); msg = inport.receive()
-
-    print("Unpacked Response (crop):")
-    blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-    info2 = pedal.unpack(bytes(msg.data)[8:], blen)
-    print(hexdump(info2[:64]))
-
-    dlen = (info2[6]*256*256) + (info2[5]*256) + info2[4]
-    outfile.write(info2[7:7 + dlen])
-
-    # and do 'part-3'
-    print("Info (pt3):", hex(address))
-    msg = mido.Message("sysex", data = pedal.build_info3(address+7))
-    outport.send(msg); sleep(0); msg = inport.receive()
-
-    print("unpacked response (crop):")
-    blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-    info3 = pedal.unpack(bytes(msg.data)[8:], blen)
-    print(hexdump(info3[:64]))
-
-    dlen = (info3[6]*256*256) + (info3[5]*256) + info3[4]
-    outfile.write(info3[7:7 + dlen])
+        dlen = (info[6]*256*256) + (info[5]*256) + info[4]
+        outfile.write(info[7:7 + dlen])
 
     outfile.close()
-    outfile = open("stream.raw", "wb")
+
+    print("---")
 
     # just pull audio data from a hardcoded address.....
     # should really parse the info data to find out what to download
+    address = 0x0127F000
+    length = 0x03F1 * 4  # try just 2 blocks... seed is weird
 
-    for address in range(0x000FF0, 0x000FF8, 8):
-        # now do 'more'
-        print("more1:", address)
-        msg = mido.Message("sysex", data = pedal.build_more1(address))
+    index = 0
+    seed = [0xFE, 0xFD, 0xFE, 0xFE]
+
+    outfile = open("stream.raw", "wb")
+    while length:
+        # read 'audio' in chunks
+        if length >= 0x03F1:
+            mdata = pedal.build_download(address, 0x3F1, seed[index])
+            address += 0x03F1
+            length -= 0x03F1
+            index += 1
+            if index >= len(seed):
+                index = 0
+        else:
+            mdata = pedal.build_download(address, length, 0xFE)
+            length = 0
+
+        print(hexdump(mdata))
+        print(hexdump(pedal.unpack(mdata[8:],65)))
+
+        msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
 
         print("unpacked response (crop):")
         blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-        more1 = pedal.unpack(bytes(msg.data)[8:], blen)
-        print(hexdump(more1[:64]))
+        audio = pedal.unpack(bytes(msg.data)[8:], blen)
+        #print("blen:", blen)
+        print(hexdump(audio[:64]))
 
+        # 'raw' audio can be converte with:
         # sox -r 48k -e signed -b 24 -c 2 --endian big stream.raw stream.wav
-        dlen = (msg.data[4]*256*256) + (msg.data[5]*256) + msg.data[6]
-        outfile.write(more1[7:7 + dlen])
 
-        # now do 'more'
-        print("more2:")
-        msg = mido.Message("sysex", data = pedal.build_more2(address+3))
-        outport.send(msg); sleep(0); msg = inport.receive()
+        dlen = (audio[6]*256*256) + (audio[5]*256) + audio[4]
+        #print("len:", len(audio))
+        #print("dlen:", dlen)
 
-        print("unpacked response (crop):")
-        blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-        more2 = pedal.unpack(bytes(msg.data)[8:], blen)
-        print(hexdump(more2[:64]))
+        outfile.write(audio[7:-2])
 
-        outfile.write(more2[9:7 + dlen])
-
-        # and do 'ack'
-        '''
-        print("ack address:", hex(address))
-        msg = mido.Message("sysex", data = pedal.build_ack(address+7))
-        outport.send(msg); sleep(0); msg = inport.receive()
-
-        print("unpacked response (crop):")
-        blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-        ack = pedal.unpack(bytes(msg.data)[8:], blen)
-        print(hexdump(ack[:64]))
-        '''
 
 if __name__ == "__main__":
     main()
