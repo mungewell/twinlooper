@@ -23,7 +23,7 @@ be packed into 7-bit format.
 host    1.3.2   f0:00:32:0d:41:00:00:40:00:00:60:67:7b:20:00:00:00:04:01:f7
                 ==                                                       == SysEx
                                            [<------ Packed Data ------>]
-                                     ^^ ^^ ??
+                                     ^^ ^^ command ??
                             ^^ ^^ ^^ count of bits in packed data (7-bit)
                    ^^ ^^ ^^ Midi device ID
 
@@ -31,9 +31,15 @@ Unpacked Data:
 00000000: 00 F0 79 0F 02 00 00 84                           ..y.....
                                ^^ Checksum
                       ^^ ^^ ^^ Byte count requested
-             ^^ ^^ ^^ Address
-          ^^ Command ?
+          ^^ ^^ ^^ ^^ Address
 ```
 
 Much is to be discovered, and understood, but I have been able to pull an audio block from the pedal...
 ![first_audio](first_audio.png)
+
+
+Audio can be created on PC with 'play' (from 'sox' package), and recorded on to pedal.
+```
+$ play -V -r 48000 -n synth sin 1000 vol -10dB
+$ play -V -r 48000 -n synth sin 2000 vol -10dB
+```
