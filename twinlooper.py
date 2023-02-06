@@ -287,18 +287,18 @@ def main():
 
     # from Tshark logs...
     length = 0x03F1 + 0x03F1 + 0x025E
-    seed = 0xFE
+    index = 0
+    seed = [0xFE, 0xFD, 0xFD]
 
     outfile = open("info.bin", "wb")
     while length:
-        # read 'info' in chunks
+        # read 'info' block in 3 chunks
         if length >= 0x03F1:
-            mdata = pedal.build_download(address, 0x3F1, seed)
+            mdata = pedal.build_download(address, 0x3F1, seed[index])
             address += 0x03F1
             length -= 0x03F1
-            seed = 0xFD         # yet to figure out why...
         else:
-            mdata = pedal.build_download(address, length, 0xFE)
+            mdata = pedal.build_download(address, length, seed[index])
             length = 0
 
         print(hexdump(mdata))
@@ -307,38 +307,42 @@ def main():
         msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
 
-        print("Unpacked Response (crop):")
+        print("Info - Unpacked Response (crop):", index)
         blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
         info = pedal.unpack(bytes(msg.data)[8:], blen)
         print(hexdump(info[:64]))
 
         dlen = (info[6]*256*256) + (info[5]*256) + info[4]
         outfile.write(info[7:7 + dlen])
+        index += 1
 
     outfile.close()
 
     print("---")
 
-    # just pull audio data from a hardcoded address.....
+    # just pull audio data from a hardcoded address..... some examples.
     # should really parse the info data to find out what to download
     address = 0x0127F000
-    length = 0x03F1 * 4  # try just 2 blocks... seed is weird
+    seed = [0xFE, 0xFD, 0xFE, 0xFE, 0xFE]
 
+    address = 0x000FF000
+    seed = [0xFF, 0xFE, 0xFE, 0xFE, 0xFE]
+
+    address = 0x000C0000
+    seed = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+
+    length = (0x03F1) * 4 + 0x38
     index = 0
-    seed = [0xFE, 0xFD, 0xFE, 0xFE]
 
     outfile = open("stream.raw", "wb")
     while length:
-        # read 'audio' in chunks
+        # read 'audio' block in 5 chunks
         if length >= 0x03F1:
             mdata = pedal.build_download(address, 0x3F1, seed[index])
             address += 0x03F1
             length -= 0x03F1
-            index += 1
-            if index >= len(seed):
-                index = 0
         else:
-            mdata = pedal.build_download(address, length, 0xFE)
+            mdata = pedal.build_download(address, length, seed[index])
             length = 0
 
         print(hexdump(mdata))
@@ -347,7 +351,7 @@ def main():
         msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
 
-        print("unpacked response (crop):")
+        print("Audio - Unpacked Response (crop):", index)
         blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
         audio = pedal.unpack(bytes(msg.data)[8:], blen)
         #print("blen:", blen)
@@ -361,6 +365,7 @@ def main():
         #print("dlen:", dlen)
 
         outfile.write(audio[7:-2])
+        index += 1
 
 
 if __name__ == "__main__":
