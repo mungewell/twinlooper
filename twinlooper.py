@@ -135,17 +135,13 @@ class twinlooper(object):
     quit()
     '''
 
-    def checksum(self, data, seed=0x00):
+    def checksum(self, data):
         # 'Single Parity Check' algorythm
-        check = seed
+        check = 0x01
         for byte in data:
             check += int(byte)
 
-        while check & 0xFFFF00:
-            check2 = (check & 0xFF) + (check >> 8)
-            check =check2
-
-        return bytes([check ^ 0xFF])
+        return bytes([(check & 0xFF) ^ 0xFF])
 
     def reverse_check(self, data, min=1, max=9):
         from hexdump import hexdump
@@ -185,7 +181,7 @@ class twinlooper(object):
         # 
         print()
 
-    def build_download(self, address, length, seed=0x00):
+    def build_download(self, address, length):
 
         data = b""
         data += bytes([(address & 0xFF)])
@@ -197,7 +193,7 @@ class twinlooper(object):
         data += bytes([(length & 0xFF00) >> 8])
         data += bytes([(length & 0xFF0000) >> 16])
 
-        data += self.checksum(data, seed)
+        data += self.checksum(data)
 
         length = len(data)*8
         packed = self.pack(bytes(data), length)
@@ -259,8 +255,8 @@ def main():
         mdata = pedal.build_download(address, 2)
         blen = (mdata[5]*128*128) + (mdata[4]*128) + mdata[3]
         
-        #print(hexdump(mdata))
-        #print(hexdump(pedal.unpack(mdata[8:],65)))
+        print(hexdump(mdata))
+        print(hexdump(pedal.unpack(mdata[8:],65)))
 
         msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
@@ -288,21 +284,20 @@ def main():
     # from Tshark logs...
     length = 0x03F1 + 0x03F1 + 0x025E
     index = 0
-    seed = [0xFE, 0xFD, 0xFD]
 
     outfile = open("info.bin", "wb")
     while length:
         # read 'info' block in 3 chunks
         if length >= 0x03F1:
-            mdata = pedal.build_download(address, 0x3F1, seed[index])
+            mdata = pedal.build_download(address, 0x3F1)
             address += 0x03F1
             length -= 0x03F1
         else:
-            mdata = pedal.build_download(address, length, seed[index])
+            mdata = pedal.build_download(address, length)
             length = 0
 
-        print(hexdump(mdata))
-        print(hexdump(pedal.unpack(mdata[8:],65)))
+        #print(hexdump(mdata))
+        #print(hexdump(pedal.unpack(mdata[8:],65)))
 
         msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
@@ -310,7 +305,8 @@ def main():
         print("Info - Unpacked Response (crop):", index)
         blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
         info = pedal.unpack(bytes(msg.data)[8:], blen)
-        print(hexdump(info[:64]))
+
+        #print(hexdump(info[:64]))
 
         dlen = (info[6]*256*256) + (info[5]*256) + info[4]
         outfile.write(info[7:7 + dlen])
@@ -322,50 +318,43 @@ def main():
 
     # just pull audio data from a hardcoded address..... some examples.
     # should really parse the info data to find out what to download
-    address = 0x0127F000
-    seed = [0xFE, 0xFD, 0xFE, 0xFE, 0xFE]
-
-    address = 0x000FF000
-    seed = [0xFF, 0xFE, 0xFE, 0xFE, 0xFE]
-
-    address = 0x000C0000
-    seed = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-
-    length = (0x03F1) * 4 + 0x38
-    index = 0
+    group = 0x0127F000
 
     outfile = open("stream.raw", "wb")
-    while length:
-        # read 'audio' block in 5 chunks
-        if length >= 0x03F1:
-            mdata = pedal.build_download(address, 0x3F1, seed[index])
-            address += 0x03F1
-            length -= 0x03F1
-        else:
-            mdata = pedal.build_download(address, length, seed[index])
-            length = 0
 
-        print(hexdump(mdata))
-        print(hexdump(pedal.unpack(mdata[8:],65)))
+    index = 0
+    for address in range(group, group + 0x64000, 0x1000):
+        length = (0x03F1) * 4 + 0x38
 
-        msg = mido.Message("sysex", data = mdata)
-        outport.send(msg); sleep(0); msg = inport.receive()
+        while length:
+            # read 'audio' block in 5 chunks
+            if length >= 0x03F1:
+                mdata = pedal.build_download(address, 0x3F1) #, seed[index])
+                address += 0x03F1
+                length -= 0x03F1
+            else:
+                mdata = pedal.build_download(address, length) #, seed[index])
+                length = 0
 
-        print("Audio - Unpacked Response (crop):", index)
-        blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-        audio = pedal.unpack(bytes(msg.data)[8:], blen)
-        #print("blen:", blen)
-        print(hexdump(audio[:64]))
+            #print(hexdump(mdata))
+            #print(hexdump(pedal.unpack(mdata[8:],65)))
 
-        # 'raw' audio can be converte with:
-        # sox -r 48k -e signed -b 24 -c 2 --endian big stream.raw stream.wav
+            msg = mido.Message("sysex", data = mdata)
+            outport.send(msg); sleep(0); msg = inport.receive()
 
-        dlen = (audio[6]*256*256) + (audio[5]*256) + audio[4]
-        #print("len:", len(audio))
-        #print("dlen:", dlen)
+            print("Audio - Unpacked Response (crop): 0x%8.8x , %d" % (group, index))
+            blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
+            audio = pedal.unpack(bytes(msg.data)[8:], blen)
 
-        outfile.write(audio[7:-2])
-        index += 1
+            #print("blen:", blen)
+            #print(hexdump(audio[:64]))
+
+            # 'raw' audio can be converted with:
+            # sox -r 48k -e signed -b 24 -c 2 --endian little stream.raw stream.wav
+
+            dlen = (audio[6]*256*256) + (audio[5]*256) + audio[4]
+            outfile.write(audio[7: 7 + dlen])
+            index += 1
 
 
 if __name__ == "__main__":
