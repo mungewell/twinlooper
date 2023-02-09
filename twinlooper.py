@@ -202,8 +202,27 @@ class twinlooper(object):
 
 #--------------------------------------------------
 def main():
+    from argparse import ArgumentParser
     from hexdump import hexdump
     from time import sleep
+
+    parser = ArgumentParser(prog="zoomzt2")
+
+    parser.add_argument("-d", "--debug",
+        action="store_true", dest="debug",
+        help="print out debug information")
+
+    parser.add_argument("-s", "--skipsong",
+        type=int, default=0, dest="skipsong",
+        help="skip songs in info list, helpful if many")
+    parser.add_argument("-b", "--base",
+        action="store_true", dest="base",
+        help="download the audio from the 'base'")
+    parser.add_argument("-o", "--ovedub",
+        action="store_true", dest="overdub",
+        help="download the audio with the most recent 'overdub'")
+
+    options = parser.parse_args()
 
     pedal = twinlooper()
     if pedal.connect():
@@ -248,29 +267,36 @@ def main():
     # search for 'address' of data to download
     print("---")
 
+    skipsong = options.skipsong
     found = False
     for address in range(0x1EF3E000, 0x1EF00000, -0x2000):
-        print("Checking Address:", hex(address))
+        print("Checking Song:", hex(address))
 
         mdata = pedal.build_download(address, 2)
         blen = (mdata[5]*128*128) + (mdata[4]*128) + mdata[3]
         
-        print(hexdump(mdata))
-        print(hexdump(pedal.unpack(mdata[8:],65)))
+        if options.debug:
+            print(hexdump(mdata))
+            print(hexdump(pedal.unpack(mdata[8:],65)))
 
         msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
 
-        print("Unpacked Response:")
         blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
         rsp = pedal.unpack(bytes(msg.data)[8:], blen)
-        print(hexdump(rsp))
+        if options.debug:
+            print("Unpacked Response:")
+            print(hexdump(rsp))
 
         # check if address contains data, assuming that's what these bytes mean
         #print(hex(rsp[7]), hex(rsp[8]))
         if (rsp[7] != 0xFF) or (rsp[8] != 0xFF):
-            found = True
-            break
+            print("Song Found")
+            if skipsong:
+                skipsong -= 1
+            else:
+                found = True
+                break
 
         sleep(0)
 
@@ -283,11 +309,16 @@ def main():
 
     # from Tshark logs...
     length = 0x03F1 + 0x03F1 + 0x025E
-    index = 0
 
     outfile = open("info.bin", "wb")
+
+    info = b""
+    part = 0
     while length:
         # read 'info' block in 3 chunks
+        print("Reading Info :", part)
+        part += 1
+
         if length >= 0x03F1:
             mdata = pedal.build_download(address, 0x3F1)
             address += 0x03F1
@@ -296,65 +327,74 @@ def main():
             mdata = pedal.build_download(address, length)
             length = 0
 
-        #print(hexdump(mdata))
-        #print(hexdump(pedal.unpack(mdata[8:],65)))
+        if options.debug:
+            print(hexdump(mdata))
+            print(hexdump(pedal.unpack(mdata[8:],65)))
 
         msg = mido.Message("sysex", data = mdata)
         outport.send(msg); sleep(0); msg = inport.receive()
 
-        print("Info - Unpacked Response (crop):", index)
         blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-        info = pedal.unpack(bytes(msg.data)[8:], blen)
+        rsp = pedal.unpack(bytes(msg.data)[8:], blen)
 
-        #print(hexdump(info[:64]))
+        if options.debug:
+            print(hexdump(rsp[:64]))
 
-        dlen = (info[6]*256*256) + (info[5]*256) + info[4]
-        outfile.write(info[7:7 + dlen])
-        index += 1
+        dlen = (rsp[6]*256*256) + (rsp[5]*256) + rsp[4]
+        outfile.write(rsp[7:7 + dlen])
+        info += rsp[7:7 + dlen]
 
     outfile.close()
-
     print("---")
-
-    # just pull audio data from a hardcoded address..... some examples.
-    # should really parse the info data to find out what to download
-    group = 0x0127F000
 
     outfile = open("stream.raw", "wb")
 
-    index = 0
-    for address in range(group, group + 0x64000, 0x1000):
+    #print(hexdump(info[:64]))
+    size = (info[13] * 256) + info[12]
+
+    # we'll just try one index for now, should parse info to make a list
+    index = 0x1234
+
+    # just pull audio data from a hardcoded address.....
+    group = 0x0127F000
+
+    part = 0
+    for address in range(group, group + (size * 0x1000), 0x1000):
         length = (0x03F1) * 4 + 0x38
 
         while length:
             # read 'audio' block in 5 chunks
+            print("Download Audio : 0x%4.4x %d.%d - 0x%8.8x" % \
+                    (index, part/5, part % 5, address))
+
             if length >= 0x03F1:
-                mdata = pedal.build_download(address, 0x3F1) #, seed[index])
+                mdata = pedal.build_download(address, 0x3F1)
                 address += 0x03F1
                 length -= 0x03F1
             else:
-                mdata = pedal.build_download(address, length) #, seed[index])
+                mdata = pedal.build_download(address, length)
                 length = 0
+            part += 1
 
-            #print(hexdump(mdata))
-            #print(hexdump(pedal.unpack(mdata[8:],65)))
+            if options.debug:
+                print(hexdump(mdata))
+                print(hexdump(pedal.unpack(mdata[8:],65)))
 
             msg = mido.Message("sysex", data = mdata)
             outport.send(msg); sleep(0); msg = inport.receive()
 
-            print("Audio - Unpacked Response (crop): 0x%8.8x , %d" % (group, index))
             blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
             audio = pedal.unpack(bytes(msg.data)[8:], blen)
 
-            #print("blen:", blen)
-            #print(hexdump(audio[:64]))
+            if options.debug:
+                print("blen:", blen)
+                print(hexdump(audio[:64]))
 
             # 'raw' audio can be converted with:
             # sox -r 48k -e signed -b 24 -c 2 --endian little stream.raw stream.wav
 
             dlen = (audio[6]*256*256) + (audio[5]*256) + audio[4]
             outfile.write(audio[7: 7 + dlen])
-            index += 1
 
 
 if __name__ == "__main__":
