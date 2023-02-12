@@ -345,58 +345,74 @@ def main():
         info += rsp[7:7 + dlen]
 
     outfile.close()
+
+    print("---")
+    # compute indexes from 'info'
+    base = []
+    address = 0x0010
+    while True:
+        if (info[address] == 0x00 and info[address+1] == 0x00) or \
+                (info[address] == 0xFF and info[address+1] == 0xFF):
+            break
+        else:
+            #base.append((info[address]) + (info[address+1] * 256))
+            base.append((info[address+1]) + (info[address] * 256))
+            address += 2
+
+    overdub = []
+    address = 0x0524
+    for i in range(len(base)):
+        #overdub.append((info[address]) + (info[address+1] * 256))
+        overdub.append((info[address+1]) + (info[address] * 256))
+        address += 2
+
     print("---")
 
-    outfile = open("stream.raw", "wb")
+    # just download EVERYTHING..... : 00:29:05.92 = 83804160 samples
+    size = 0x20
+    for group in range(0x00000000, 0x1e000000, size * 0x1000):
+        outfile = open('0x{:08X}'.format(group)+".raw", "wb")
 
-    #print(hexdump(info[:64]))
-    size = (info[13] * 256) + info[12]
+        part = 0
+        for address in range(group, group + (size * 0x1000), 0x1000):
+            length = (0x03F1) * 4 + 0x38
 
-    # we'll just try one index for now, should parse info to make a list
-    index = 0x1234
+            while length:
+                # read 'audio' block in 5 chunks
+                print("Download Audio : 0x%8.8x %2.2d.%d - 0x%8.8x" % \
+                        (group, part/5, part % 5, address))
 
-    # just pull audio data from a hardcoded address.....
-    group = 0x0127F000
+                if length >= 0x03F1:
+                    mdata = pedal.build_download(address, 0x3F1)
+                    address += 0x03F1
+                    length -= 0x03F1
+                else:
+                    mdata = pedal.build_download(address, length)
+                    length = 0
+                part += 1
 
-    part = 0
-    for address in range(group, group + (size * 0x1000), 0x1000):
-        length = (0x03F1) * 4 + 0x38
+                if options.debug:
+                    print(hexdump(mdata))
+                    print(hexdump(pedal.unpack(mdata[8:],65)))
 
-        while length:
-            # read 'audio' block in 5 chunks
-            print("Download Audio : 0x%4.4x %d.%d - 0x%8.8x" % \
-                    (index, part/5, part % 5, address))
+                msg = mido.Message("sysex", data = mdata)
+                outport.send(msg); sleep(0.001); msg = inport.receive()
 
-            if length >= 0x03F1:
-                mdata = pedal.build_download(address, 0x3F1)
-                address += 0x03F1
-                length -= 0x03F1
-            else:
-                mdata = pedal.build_download(address, length)
-                length = 0
-            part += 1
+                blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
+                audio = pedal.unpack(bytes(msg.data)[8:], blen)
 
-            if options.debug:
-                print(hexdump(mdata))
-                print(hexdump(pedal.unpack(mdata[8:],65)))
+                if options.debug:
+                    print("blen:", blen)
+                    print(hexdump(audio[:64]))
 
-            msg = mido.Message("sysex", data = mdata)
-            outport.send(msg); sleep(0); msg = inport.receive()
+                # 'raw' audio can be converted with:
+                # sox -r 48k -e signed -b 24 -c 2 --endian little stream.raw stream.wav
+                dlen = (audio[6]*256*256) + (audio[5]*256) + audio[4]
+                outfile.write(audio[7: 7 + dlen])
+                sleep(0.001)
 
-            blen = (msg.data[5]*128*128) + (msg.data[4]*128) + msg.data[3]
-            audio = pedal.unpack(bytes(msg.data)[8:], blen)
-
-            if options.debug:
-                print("blen:", blen)
-                print(hexdump(audio[:64]))
-
-            # 'raw' audio can be converted with:
-            # sox -r 48k -e signed -b 24 -c 2 --endian little stream.raw stream.wav
-
-            dlen = (audio[6]*256*256) + (audio[5]*256) + audio[4]
-            outfile.write(audio[7: 7 + dlen])
-
+        outfile.close
+        sleep(0.001)
 
 if __name__ == "__main__":
     main()
-
