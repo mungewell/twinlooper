@@ -134,6 +134,9 @@ class twinlooper(object):
     print(hexdump(unpack(data,72)))
     quit()
     '''
+    
+    def index_to_address(self, index, length=0):
+        return (index * 0x40000)
 
     def checksum(self, data):
         # 'Single Parity Check' algorythm
@@ -269,7 +272,8 @@ def main():
 
     skipsong = options.skipsong
     found = False
-    for address in range(0x1EF3E000, 0x1EF00000, -0x2000):
+    #for address in range(0x1EF3E000, 0x1EF00000, -0x2000):
+    for address in range(0x1EF3E000, 0x1EE00000, -0x2000):
         print("Checking Song:", hex(address))
 
         mdata = pedal.build_download(address, 2)
@@ -355,32 +359,46 @@ def main():
                 (info[address] == 0xFF and info[address+1] == 0xFF):
             break
         else:
-            #base.append((info[address]) + (info[address+1] * 256))
-            base.append((info[address+1]) + (info[address] * 256))
+            base.append((info[address]) + (info[address+1] * 256))
+            #base.append((info[address+1]) + (info[address] * 256))
             address += 2
 
     overdub = []
     address = 0x0524
     for i in range(len(base)):
-        #overdub.append((info[address]) + (info[address+1] * 256))
-        overdub.append((info[address+1]) + (info[address] * 256))
+        overdub.append((info[address]) + (info[address+1] * 256))
+        #overdub.append((info[address+1]) + (info[address] * 256))
         address += 2
 
     print("---")
-
+    '''
     # just download EVERYTHING..... : 00:29:05.92 = 83804160 samples
     size = 0x20
     for group in range(0x00000000, 0x1e000000, size * 0x1000):
         outfile = open('0x{:08X}'.format(group)+".raw", "wb")
-
         part = 0
         for address in range(group, group + (size * 0x1000), 0x1000):
             length = (0x03F1) * 4 + 0x38
+    '''
+    time = 0
+    duration = (info[13] * 256) + info[12]
+    outfile = open("stream.raw", "wb")
 
+    for group in range(len(base)):
+        if overdub[group] and options.overdub:
+            index = overdub[group]
+        else:
+            index = base[group]
+
+        part = 0
+        for address in range(pedal.index_to_address(index, duration), \
+                pedal.index_to_address(index+1, duration), 0x1000):
+
+            # read 'audio' block in 5 chunks
+            length = (0x03F1) * 4 + 0x38
             while length:
-                # read 'audio' block in 5 chunks
-                print("Download Audio : 0x%8.8x %2.2d.%d - 0x%8.8x" % \
-                        (group, part/5, part % 5, address))
+                print("Download Audio : %4.4x %2.2d.%d - 0x%8.8x" % \
+                        (index, part/5, part % 5, address))
 
                 if length >= 0x03F1:
                     mdata = pedal.build_download(address, 0x3F1)
@@ -411,7 +429,12 @@ def main():
                 outfile.write(audio[7: 7 + dlen])
                 sleep(0.001)
 
+            time += 0.909 / 64
+            if time >= duration:
+                break
+
         outfile.close
+        print("total time", time)
         sleep(0.001)
 
 if __name__ == "__main__":
